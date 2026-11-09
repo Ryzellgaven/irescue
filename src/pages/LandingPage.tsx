@@ -73,7 +73,7 @@ export default function LandingPage() {
               <Link to="/login">LDRRMO Staff Login</Link>
             </Button>
             <Button size="lg" variant="ghost" className="h-11 rounded-lg text-white/80 hover:bg-white/10 hover:text-white" asChild>
-              <Link to="/xampp">Open XAMPP Operations</Link>
+              <Link to="/operations">Open Operations Center</Link>
             </Button>
           </div>
           </div>
@@ -102,10 +102,10 @@ export default function LandingPage() {
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[
-              { label: 'System Status', value: 'OPERATIONAL', color: 'text-emerald-700' },
-              { label: 'Active Sensors', value: '3 Online', color: 'text-[#89151f]' },
-              { label: 'Evacuation Centers', value: '3 Active', color: 'text-[#89151f]' },
-              { label: 'Response Mode', value: 'Normal', color: 'text-slate-600' },
+              { label: 'Resident access', value: 'Emergency reporting', color: 'text-[#89151f]' },
+              { label: 'Response operations', value: 'Role-based staff access', color: 'text-[#89151f]' },
+              { label: 'Incident records', value: 'Persisted in the application database', color: 'text-slate-700' },
+              { label: 'Sensor readings', value: 'Registered devices only', color: 'text-slate-700' },
             ].map(s => (
               <div key={s.label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 text-center sm:px-4">
                 <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:text-[10px]">{s.label}</p>
@@ -155,7 +155,7 @@ export default function LandingPage() {
               <Link to="/login">Staff / Admin Login</Link>
             </Button>
             <Button variant="ghost" className="rounded-lg text-white/80 hover:bg-white/10 hover:text-white" asChild>
-              <Link to="/xampp">XAMPP Operations Portal</Link>
+              <Link to="/operations">Open Operations Center</Link>
             </Button>
           </div>
         </div>

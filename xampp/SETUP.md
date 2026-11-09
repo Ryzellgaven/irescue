@@ -1,10 +1,10 @@
-﻿# XAMPP installation and setup
+# Local XAMPP setup
 
 The application requires a locally installed and running XAMPP stack. Install XAMPP for Windows with PHP 8.1+ and PDO MySQL, Fileinfo, and mbstring enabled. In XAMPP Control Panel, start **Apache** and **MySQL**. Confirm `http://localhost/` and `http://localhost/phpmyadmin/` work before continuing.
 
 ## 1. Create the MySQL database
 
-For a fresh installation, import `xampp/database.sql` in phpMyAdmin. It creates the complete schema only—no accounts, incidents, evacuation centers, sensor readings, or demo data.
+For a fresh installation, create and select the `ldrrmo_xampp` database in phpMyAdmin, then import `xampp/database.sql`. It creates the complete schema only—no accounts, incidents, evacuation centers, sensor readings, or demo data.
 
 To upgrade an installation created by the previous standalone `/xampp` portal, back up `ldrrmo_xampp` first. In phpMyAdmin, run `migrate-existing-xampp-stage1.sql`, import `database.sql`, then run `migrate-existing-xampp-stage2.sql`. This migrates staff password hashes and IDs, reports, assignments' prior status history, registered sensors and readings, and audit history into the unified tables. Legacy tables are retained with `legacy_` names for verification; the application no longer uses them. No old account is silently discarded.
 
@@ -65,4 +65,4 @@ Resident self-registration creates only the `resident` role. The API ignores any
 - Sensor values must come from an actual registered sensor or trusted gateway. The admin IoT page shows the device code and token once; submit readings to `POST http://localhost/ldrrmo-api/index.php?action=device-reading` with `X-Device-Token` and JSON such as `{"device_code":"IOT-<assigned-code>","reading":1.42}`. Keep device tokens out of browser code and source control.
 - In-app notifications are delivered from the database. Push/SMS/email delivery remains unavailable until a real provider is configured, and those channel attempts are saved with an explicit failed status.
 
-XAMPP is for local development, not a hardened public production server. Do not expose its default installation directly to the internet. Any public deployment needs HTTPS, firewalling, restricted database credentials, secure Apache configuration, and a reviewed operational security plan.
+XAMPP is for local development, not a hardened public production server. Do not expose its default installation directly to the internet. For a public Render deployment, follow the deployment guide in the root README.

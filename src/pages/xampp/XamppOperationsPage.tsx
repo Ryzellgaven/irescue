@@ -502,7 +502,7 @@ function SensorRows({ sensors, loaded }: { sensors: XamppSensor[]; loaded: boole
     return (
       <div className="py-12 text-center">
         <p className="text-sm font-semibold text-slate-700">Sensor data unavailable</p>
-        <p className="mt-1 text-xs text-slate-500">Reconnect to the XAMPP API to load registered devices.</p>
+        <p className="mt-1 text-xs text-slate-500">Check the application API connection to load registered devices.</p>
       </div>
     );
   }

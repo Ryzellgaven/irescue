@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: ldrrmo-emergency-response
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/index.php?action=health
+    disk:
+      name: ldrrmo-private-uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: LDRRMO_DB_HOST
+        sync: false
+      - key: LDRRMO_DB_PORT
+        value: "3306"
+      - key: LDRRMO_DB_NAME
+        value: ldrrmo_xampp
+      - key: LDRRMO_DB_USER
+        sync: false
+      - key: LDRRMO_DB_PASSWORD
+        sync: false
+      - key: LDRRMO_DB_SSL_CA
+        sync: false
+      - key: LDRRMO_PRIVATE_UPLOAD_DIR
+        value: /var/data/ldrrmo-uploads

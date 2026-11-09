@@ -188,7 +188,7 @@ export default function IoTDeviceManagement() {
                 <code className="break-all">{newDeviceCredentials.deviceToken}</code>
               </div>
               <p className="text-muted-foreground">
-                Configure the sensor to POST its reading to the XAMPP API&apos;s <code>readings</code> endpoint using the
+                Configure the sensor to POST its reading to the application API&apos;s <code>device-reading</code> endpoint using the
                 <code> X-Device-Token </code> header.
               </p>
             </div>

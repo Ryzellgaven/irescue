@@ -4,9 +4,21 @@ require_once __DIR__ . '/config.php';
 
 date_default_timezone_set('UTC');
 header('Cache-Control: no-store');
+if (($_GET['action'] ?? '') === 'health' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    try {
+        database()->query('SELECT 1');
+        jsonResponse(['data' => ['status' => 'ok']]);
+    } catch (Throwable $e) {
+        error_log('[LDRRMO health] ' . $e::class . ': ' . $e->getMessage());
+        jsonResponse(['error' => ['message' => 'The database is unavailable.']], 503);
+    }
+}
 $allowedOrigins = array_filter(array_map('trim', explode(',', getenv('LDRRMO_ALLOWED_ORIGINS') ?: 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')));
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($origin !== '' && !in_array($origin, $allowedOrigins, true)) jsonResponse(['error' => ['message' => 'This site is not allowed to access the API.']], 403);
+$forwardedProto = strtolower(trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')[0]));
+$requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $forwardedProto === 'https' ? 'https' : 'http';
+$requestOrigin = $requestScheme . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+if ($origin !== '' && !in_array($origin, $allowedOrigins, true) && $origin !== $requestOrigin) jsonResponse(['error' => ['message' => 'This site is not allowed to access the API.']], 403);
 if ($origin !== '') {
     header("Access-Control-Allow-Origin: {$origin}");
     header('Vary: Origin');
@@ -19,7 +31,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 session_name('ldrrmo_xampp_session');
-session_set_cookie_params(['lifetime'=>0, 'path'=>'/', 'secure'=>!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off', 'httponly'=>true, 'samesite'=>'Lax']);
+session_set_cookie_params(['lifetime'=>0, 'path'=>'/', 'secure'=>$requestScheme === 'https', 'httponly'=>true, 'samesite'=>'Lax']);
 session_start();
 try { dispatch(database()); }
 catch (Throwable $e) {

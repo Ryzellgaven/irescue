@@ -9,7 +9,7 @@ const LegacyRoutes = lazy(() => import('./LegacyRoutes'));
 function AppRoutes() {
   const { pathname } = useLocation();
 
-  if (pathname === '/xampp') {
+  if (pathname === '/operations' || pathname === '/xampp') {
     return (
       <>
         <IntersectObserver />

@@ -77,7 +77,9 @@ export interface XamppReportPage {
 }
 
 const API_URL =
-  import.meta.env.VITE_XAMPP_API_URL ?? 'http://localhost/ldrrmo-api/index.php';
+  import.meta.env.VITE_API_URL ??
+  import.meta.env.VITE_XAMPP_API_URL ??
+  '/api/index.php';
 
 let csrfToken: string | null = null;
 const lastReadErrors = new Map<string, number>();
@@ -113,7 +115,7 @@ export async function apiRequest<T>(
   try {
     response = await fetch(url, { ...options, headers, credentials: 'include' });
   } catch {
-    const message = `Cannot reach the XAMPP API at ${API_URL}. Start Apache and MySQL, then check the API URL.`;
+    const message = `Cannot reach the application API at ${API_URL}. Check the server and API configuration.`;
     if (!options.method || options.method === 'GET') surfaceReadError(message);
     throw new Error(message);
   }
@@ -122,17 +124,17 @@ export async function apiRequest<T>(
   try {
     body = (await response.json()) as ApiResponse<T>;
   } catch {
-    const message = `The XAMPP API returned an invalid response (${response.status}).`;
+    const message = `The application API returned an invalid response (${response.status}).`;
     if (!options.method || options.method === 'GET') surfaceReadError(message);
     throw new Error(message);
   }
   if (!response.ok) {
-    const message = body.error?.message ?? `XAMPP API request failed (${response.status}).`;
+    const message = body.error?.message ?? `Application API request failed (${response.status}).`;
     if (!options.method || options.method === 'GET') surfaceReadError(message);
     throw new Error(message);
   }
   if (!('data' in body)) {
-    throw new Error('The XAMPP API response did not include the expected data.');
+    throw new Error('The application API response did not include the expected data.');
   }
   return body.data as T;
 }
