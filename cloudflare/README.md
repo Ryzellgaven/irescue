@@ -25,3 +25,4 @@ These commands require Node.js and pnpm, neither of which was available in the d
 This migration starts with a new D1 database; it does not migrate MySQL user accounts, password hashes, incidents, sensor data, or other existing records.
 
 Cloudflare's free usage limits do not provide an uptime, backup, recovery, privacy, or emergency-response guarantee. Do not use this deployment for real dispatch, sensitive resident data, or public emergency instructions without formal organizational approval and operational safeguards.
+Cloudflare Builds: production branch cloudflare-d1-pilot-foundation; build command pnpm run build; deploy command npx wrangler deploy --config wrangler.jsonc; root directory /.
