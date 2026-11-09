@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { getActiveReports, getEvacuationCenters } from '@/lib/api';
+import { getActiveReports, getEvacuationCenters, getSafeRoutes } from '@/lib/api';
 import { diplomahanBoundaries, DIPLAHAN_BOUNDS, DIPLAHAN_CENTER } from '@/data/diplahan-boundary';
-import type { EmergencyReport, EvacuationCenter } from '@/types/index';
+import type { EmergencyReport, EvacuationCenter, SafeRoute } from '@/types/index';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Shield, Loader2, RefreshCw, LocateFixed } from 'lucide-react';
@@ -48,22 +48,26 @@ export default function ResidentMap() {
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const locationLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryRef = useRef<L.GeoJSON | null>(null);
   const locationWatchRef = useRef<number | null>(null);
   const [reports, setReports] = useState<EmergencyReport[]>([]);
   const [centers, setCenters] = useState<EvacuationCenter[]>([]);
+  const [safeRoutes, setSafeRoutes] = useState<SafeRoute[]>([]);
   const [myPos, setMyPos] = useState<[number, number] | null>(null);
   const [myAccuracy, setMyAccuracy] = useState<number | null>(null);
   const [tracking, setTracking] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
-    const [reports, cRes] = await Promise.all([
+    const [reports, cRes, routes] = await Promise.all([
       getActiveReports(),
       getEvacuationCenters(),
+      getSafeRoutes(),
     ]);
     setReports(reports);
     setCenters(cRes);
+    setSafeRoutes(routes);
     setLoading(false);
   }, []);
 
@@ -85,6 +89,7 @@ export default function ResidentMap() {
     }).addTo(mapRef.current);
     markersRef.current = L.layerGroup().addTo(mapRef.current);
     locationLayerRef.current = L.layerGroup().addTo(mapRef.current);
+    routeLayerRef.current = L.layerGroup().addTo(mapRef.current);
 
     // Draw the published municipal outline without implying estimated barangay lines are surveyed.
     boundaryRef.current = L.geoJSON(diplomahanBoundaries as never, {
@@ -176,6 +181,36 @@ export default function ResidentMap() {
   }, [reports, centers]);
 
   useEffect(() => {
+    const routeLayer = routeLayerRef.current;
+    if (!routeLayer) return;
+    routeLayer.clearLayers();
+    const activeReportIds = new Set(reports.map(report => report.id));
+    safeRoutes.filter(route => route.report_id !== null && activeReportIds.has(route.report_id)).forEach(route => {
+      const latLngs = route.path.map(point => L.latLng(point.latitude, point.longitude));
+      if (latLngs.length < 2) return;
+      L.polyline(latLngs, {
+        color: '#fff',
+        weight: 10,
+        opacity: 0.95,
+        lineCap: 'round',
+      }).addTo(routeLayer);
+      const line = L.polyline(latLngs, {
+        color: '#15803d',
+        weight: 6,
+        opacity: 1,
+        lineCap: 'round',
+      }).addTo(routeLayer);
+      const content = document.createElement('div');
+      const heading = document.createElement('strong');
+      heading.textContent = route.title;
+      const note = document.createElement('p');
+      note.textContent = 'Operator-drawn proposal. Confirm road access and safety with responders before travel.';
+      content.append(heading, note);
+      line.bindPopup(content).bindTooltip(route.title);
+    });
+  }, [reports, safeRoutes]);
+
+  useEffect(() => {
     if (!mapRef.current || !locationLayerRef.current) return;
     locationLayerRef.current.clearLayers();
     if (!myPos) return;
@@ -199,7 +234,7 @@ export default function ResidentMap() {
   }, [loadData]);
 
   return (
-    <div className="h-[calc(100vh-56px)] md:h-screen flex flex-col">
+    <div className="relative h-[calc(100vh-56px)] md:h-screen flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
         <div>
@@ -247,6 +282,15 @@ export default function ResidentMap() {
       )}
 
       <div ref={mapDivRef} className="flex-1 min-h-0 w-full" />
+      {safeRoutes.length > 0 && (
+        <div className="absolute left-3 top-[4.5rem] z-[1000] max-w-[min(22rem,calc(100%-1.5rem))] rounded border border-green-200 bg-white/95 p-3 text-green-950 shadow-lg">
+          <p className="text-xs font-semibold">Published landslide detour{safeRoutes.length === 1 ? '' : 's'} ({safeRoutes.length})</p>
+          <p className="mt-1 text-xs">{safeRoutes[0].title}</p>
+          <p className="mt-1 text-[10px] leading-relaxed">
+            Tap a green route for details. Confirm road access and safety with responders before travel.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

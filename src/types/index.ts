@@ -96,6 +96,16 @@ export interface LocationUpdate {
   created_at: string;
 }
 
+export interface SafeRoute {
+  id: string;
+  report_id: string | null;
+  title: string;
+  path: { latitude: number; longitude: number }[];
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface IotDevice {
   id: string;
   device_code: string;
@@ -169,4 +179,3 @@ export interface SystemConfig {
   description: string | null;
   updated_at: string;
 }
-

@@ -1,15 +1,15 @@
+import {
+  Activity, AlertTriangle, BarChart2, Bell, BookOpen, ChevronRight, Cpu, FileText, Home,
+  LayoutDashboard, LogOut, Map, Menu, Phone, Radio, Settings, Shield, Users, Volume2,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Badge } from '@/components/ui/badge';
-import {
-  LayoutDashboard, Map, FileText, Bell, Users, Settings,
-  Activity, Phone, Shield, BarChart2, Menu, LogOut, Radio,
-  AlertTriangle, Home, ChevronRight, Cpu, BookOpen,
-} from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useIncidentAlerts } from '@/contexts/IncidentAlertContext';
+import { cn } from '@/lib/utils';
 import type { UserRole } from '@/types/index';
 
 interface NavItem {
@@ -155,6 +155,7 @@ function SidebarContent({ onNavigate, compact = false }: { onNavigate?: () => vo
 export function MainLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { profile, signOut } = useAuth();
+  const { soundEnabled, enableSound } = useIncidentAlerts();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -189,6 +190,20 @@ export function MainLayout({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {profile?.role !== 'resident' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={soundEnabled ? 'Incident sound alerts enabled' : 'Enable incident sound alerts'}
+              aria-pressed={soundEnabled}
+              title={soundEnabled ? 'Incident sound alerts enabled' : 'Enable incident sound alerts (plays a test sound)'}
+              className="h-8 w-8 text-white/85 hover:bg-white/10 hover:text-white disabled:opacity-100"
+              disabled={soundEnabled}
+              onClick={() => void enableSound()}
+            >
+              <Volume2 className={`h-4 w-4 ${soundEnabled ? 'text-emerald-300' : ''}`} />
+            </Button>
+          )}
           <Link to="/dashboard/reports" aria-label="View incoming reports" className="relative rounded-md p-2 text-white/85 transition hover:bg-white/10 hover:text-white">
             <Bell className="h-4 w-4" />
           </Link>

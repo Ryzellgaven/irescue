@@ -150,6 +150,8 @@ function dispatch(PDO $pdo): void {
     if ($action==='report-status' && $method==='PATCH') { changeStatus($pdo,$user); }
     if ($action==='report-assignments' && $method==='GET') { requireRole($user,['ldrrmo_staff','supervisor','admin']); getAssignments($pdo); }
     if ($action==='report-assignments' && $method==='POST') { requireRole($user,['supervisor','admin']); assignReport($pdo,$user); }
+    if ($action==='safe-routes' && $method==='GET') { getSafeRoutes($pdo); }
+    if ($action==='safe-routes' && $method==='POST') { requireRole($user,['supervisor','admin']); createSafeRoute($pdo,$user); }
     if ($action==='report-status-history' && $method==='GET') { requireRole($user,['ldrrmo_staff','supervisor','admin']); getStatusHistory($pdo); }
     if ($action==='locations' && $method==='GET') { requireRole($user,['ldrrmo_staff','supervisor','admin']); getLocations($pdo); }
     if ($action==='locations' && $method==='POST') { saveLocation($pdo,$user); }
@@ -311,6 +313,10 @@ function changeStatus(PDO $pdo,array $u): never {
         if($status==='closed'&&$aar===null&&empty($current['after_action_report']))fail('An after-action report is required before closing an incident.');
         if($old!==$status||$aar!==null){$q=$pdo->prepare('UPDATE emergency_reports SET status=?,after_action_report=COALESCE(?,after_action_report) WHERE id=?');$q->execute([$status,$aar,$id]);}
         if($old!==$status){
+            if(in_array($status,['resolved','closed'],true)){
+                $q=$pdo->prepare('UPDATE safe_routes SET is_active=0 WHERE report_id=? AND is_active=1');
+                $q->execute([$id]);
+            }
             $q=$pdo->prepare('INSERT INTO status_updates(report_id,updated_by,old_status,new_status,notes) VALUES(?,?,?,?,?)');
             $q->execute([$id,$u['id'],$old,$status,text($v['notes']??null,'Notes',2000,false)]);
             $recipient=$pdo->prepare('SELECT reporter_id,emergency_type FROM emergency_reports WHERE id=?');$recipient->execute([$id]);$reporter=$recipient->fetch();
@@ -335,6 +341,55 @@ function assignReport(PDO $pdo,array $u): never {
 }
 function getAssignments(PDO $pdo): never {
     $id=(int)($_GET['id']??0);ok(decodeJsonRows(listQuery($pdo,'SELECT a.*,JSON_OBJECT("full_name",p.full_name,"role",p.role) AS profiles FROM report_assignments a JOIN profiles p ON p.id=a.responder_id WHERE a.report_id=? ORDER BY a.created_at DESC',[$id]),['profiles']));
+}
+function decodeSafeRoute(array $route): array {
+    $route['id']=(int)$route['id'];
+    $route['report_id']=$route['report_id']===null?null:(int)$route['report_id'];
+    $route['created_by']=$route['created_by']===null?null:(int)$route['created_by'];
+    $route['is_active']=(bool)$route['is_active'];
+    $route['path']=json_decode((string)$route['path_json'],true,512,JSON_THROW_ON_ERROR);
+    unset($route['path_json']);
+    return $route;
+}
+function getSafeRoutes(PDO $pdo): never {
+    $routes=listQuery($pdo,"SELECT s.id,s.report_id,s.title,s.path_json,s.is_active,s.created_by,s.created_at FROM safe_routes s JOIN emergency_reports r ON r.id=s.report_id WHERE s.is_active=1 AND r.status IN ('open','in_progress') ORDER BY s.created_at DESC LIMIT 100");
+    ok(array_map('decodeSafeRoute',$routes));
+}
+function createSafeRoute(PDO $pdo,array $u): never {
+    $v=input();
+    $reportId=whole($v['report_id']??null,1,PHP_INT_MAX,'Report ID');
+    $title=text($v['title']??null,'Route name',160);
+    $points=$v['path']??null;
+    if(!is_array($points)||count($points)<2||count($points)>100)fail('A route must contain between 2 and 100 map points.');
+    $path=[];
+    foreach($points as $point){
+        if(!is_array($point))fail('Each route point must include valid coordinates.');
+        $path[]=[
+            'latitude'=>num($point['latitude']??null,-90,90,'Latitude'),
+            'longitude'=>num($point['longitude']??null,-180,180,'Longitude'),
+        ];
+    }
+    $q=$pdo->prepare("SELECT emergency_type,status FROM emergency_reports WHERE id=?");
+    $q->execute([$reportId]);$report=$q->fetch();
+    if(!$report)fail('The report does not exist.',404);
+    if($report['emergency_type']!=='landslide')fail('Alternate routes can only be published for landslide reports.');
+    if(in_array($report['status'],['resolved','closed'],true))fail('A route cannot be published for a closed report.');
+
+    $pdo->beginTransaction();
+    try{
+        $q=$pdo->prepare('UPDATE safe_routes SET is_active=0 WHERE report_id=? AND is_active=1');
+        $q->execute([$reportId]);
+        $q=$pdo->prepare('INSERT INTO safe_routes(report_id,title,path_json,created_by) VALUES(?,?,?,?)');
+        $q->execute([$reportId,$title,json_encode($path,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES),$u['id']]);
+        $id=(int)$pdo->lastInsertId();
+        audit($pdo,(int)$u['id'],'safe_route_published','safe_routes',$id,['report_id'=>$reportId]);
+        $pdo->commit();
+    }catch(Throwable $e){
+        if($pdo->inTransaction())$pdo->rollBack();
+        throw $e;
+    }
+    $q=$pdo->prepare('SELECT id,report_id,title,path_json,is_active,created_by,created_at FROM safe_routes WHERE id=?');
+    $q->execute([$id]);ok(decodeSafeRoute($q->fetch()),201);
 }
 function getStatusHistory(PDO $pdo): never {
     $id=(int)($_GET['id']??0);ok(decodeJsonRows(listQuery($pdo,'SELECT s.*,JSON_OBJECT("full_name",p.full_name) AS profiles FROM status_updates s JOIN profiles p ON p.id=s.updated_by WHERE s.report_id=? ORDER BY s.created_at DESC',[$id]),['profiles']));

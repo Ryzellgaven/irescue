@@ -21,97 +21,117 @@ const features = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 border border-primary/30">
-              <AlertTriangle className="h-4 w-4 text-primary" />
+    <div className="dashboard-theme min-h-screen bg-[#f2f4f5] text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#74151d] text-white shadow-sm">
+        <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <Link to="/" className="inline-flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/70 bg-white shadow-sm">
+              <Shield className="h-8 w-8 fill-[#86151f] text-[#86151f]" strokeWidth={1.5} />
+              <AlertTriangle className="absolute h-3.5 w-3.5 text-white" />
             </div>
             <div>
-              <span className="text-sm font-bold uppercase tracking-widest text-primary">LDRRMO</span>
-              <span className="hidden md:inline text-xs text-muted-foreground ml-2">Diplahan</span>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70 sm:text-xs">Municipality of Diplahan</p>
+              <p className="mt-0.5 text-sm font-bold leading-tight sm:text-base">Emergency Response System</p>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 hover:text-white" asChild>
               <Link to="/login">Sign In</Link>
             </Button>
-            <Button size="sm" asChild>
+            <Button size="sm" className="rounded-lg bg-white font-semibold text-[#89151f] shadow-sm hover:bg-white/90" asChild>
               <Link to="/register">Register</Link>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="relative border-b border-border overflow-hidden">
-        <div className="tactical-grid absolute inset-0 opacity-30 pointer-events-none" />
-        <div className="relative max-w-6xl mx-auto px-4 md:px-8 py-24 md:py-32">
-          <Badge className="mb-6 border-primary/40 bg-primary/10 text-primary text-xs tracking-widest uppercase">
-            Production System · Diplahan, Zamboanga Sibugay
+      <section className="relative isolate overflow-hidden bg-[#74151d] text-white">
+        <div className="tactical-grid pointer-events-none absolute inset-0 opacity-20" />
+        <div className="pointer-events-none absolute -right-36 top-[-12rem] h-[34rem] w-[34rem] rounded-full border border-white/10" />
+        <div className="pointer-events-none absolute -right-16 top-[-8rem] h-[25rem] w-[25rem] rounded-full border border-white/10" />
+        <div className="pointer-events-none absolute -bottom-40 -left-20 h-72 w-[120%] rotate-[-6deg] rounded-[50%] bg-[#5a1118]/70" />
+        <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-[1.4fr_0.8fr] lg:px-8">
+          <div>
+            <Badge className="mb-6 border-white/25 bg-white/10 text-[10px] font-semibold uppercase tracking-[0.18em] text-white hover:bg-white/10">
+              Diplahan, Zamboanga Sibugay
           </Badge>
-          <h1 className="text-3xl md:text-5xl font-bold leading-tight text-balance mb-6 max-w-3xl">
+          <h1 className="mb-6 max-w-3xl text-balance text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl md:text-5xl">
             GIS-Based Emergency Response System
           </h1>
-          <p className="text-base md:text-lg text-muted-foreground max-w-2xl mb-10 text-pretty">
+          <p className="mb-9 max-w-2xl text-pretty text-sm leading-7 text-white/75 sm:text-base md:text-lg">
             A unified command platform for LDRRMO Diplahan. Real-time incident mapping,
             IoT flood monitoring, responder coordination, and resident emergency reporting —
-            all in one production-ready system.
+            all in one community-centered system.
           </p>
-          <div className="flex flex-col md:flex-row gap-3">
-            <Button size="lg" asChild>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <Button size="lg" className="h-11 rounded-lg bg-white font-semibold text-[#89151f] shadow-sm hover:bg-white/90" asChild>
               <Link to="/register">
                 Register as Resident <ChevronRight className="ml-1 h-4 w-4" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild>
+            <Button size="lg" variant="outline" className="h-11 rounded-lg border-white/40 bg-white/5 text-white hover:bg-white/10 hover:text-white" asChild>
               <Link to="/login">LDRRMO Staff Login</Link>
             </Button>
-            <Button size="lg" variant="ghost" asChild>
+            <Button size="lg" variant="ghost" className="h-11 rounded-lg text-white/80 hover:bg-white/10 hover:text-white" asChild>
               <Link to="/xampp">Open XAMPP Operations</Link>
             </Button>
+          </div>
+          </div>
+          <div className="relative z-10 rounded-2xl border border-white/15 bg-[#4f1018]/55 p-6 shadow-2xl backdrop-blur-sm sm:p-8">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                <Activity className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Community safety</p>
+                <p className="mt-1 text-lg font-bold">Help is within reach</p>
+              </div>
+            </div>
+            <p className="text-sm leading-6 text-white/75">
+              Report emergencies, find evacuation support, and stay informed with updates from your local response team.
+            </p>
+            <div className="mt-6 flex items-center gap-2 border-t border-white/15 pt-5 text-xs font-medium text-white/70">
+              <Map className="h-4 w-4 text-white" />
+              <span>One connected system for a safer Diplahan</span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Status bar */}
-      <section className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <section className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[
-              { label: 'System Status', value: 'OPERATIONAL', color: 'text-[hsl(var(--severity-low))]' },
-              { label: 'Active Sensors', value: '3 Online', color: 'text-primary' },
-              { label: 'Evacuation Centers', value: '3 Active', color: 'text-primary' },
-              { label: 'Response Mode', value: 'Normal', color: 'text-muted-foreground' },
+              { label: 'System Status', value: 'OPERATIONAL', color: 'text-emerald-700' },
+              { label: 'Active Sensors', value: '3 Online', color: 'text-[#89151f]' },
+              { label: 'Evacuation Centers', value: '3 Active', color: 'text-[#89151f]' },
+              { label: 'Response Mode', value: 'Normal', color: 'text-slate-600' },
             ].map(s => (
-              <div key={s.label} className="text-center">
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">{s.label}</p>
-                <p className={`text-sm font-bold ${s.color}`}>{s.value}</p>
+              <div key={s.label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 text-center sm:px-4">
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:text-[10px]">{s.label}</p>
+                <p className={`text-xs font-bold sm:text-sm ${s.color}`}>{s.value}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Features */}
-      <section className="max-w-6xl mx-auto px-4 md:px-8 py-20">
-        <div className="mb-12 text-left md:text-center">
-          <p className="text-xs uppercase tracking-widest text-primary mb-3">System Capabilities</p>
-          <h2 className="text-2xl md:text-3xl font-bold text-balance">End-to-End Emergency Management</h2>
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 md:py-20 lg:px-8">
+        <div className="mb-10 text-left md:mb-12 md:text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[#89151f]">System Capabilities</p>
+          <h2 className="text-balance text-2xl font-bold text-slate-900 md:text-3xl">End-to-End Emergency Management</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {features.map(f => (
-            <Card key={f.label} className="bg-card border-border hover:border-primary/30 transition-colors">
-              <CardContent className="p-5">
+            <Card key={f.label} className="rounded-xl border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#89151f]/30 hover:shadow-md">
+              <CardContent className="p-5 sm:p-6">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary/10 border border-primary/20 mt-0.5">
-                    <f.icon className="h-4 w-4 text-primary" />
+                  <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#89151f]/10 bg-[#89151f]/[0.06]">
+                    <f.icon className="h-4 w-4 text-[#89151f]" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold mb-1">{f.label}</p>
-                    <p className="text-xs text-muted-foreground text-pretty">{f.desc}</p>
+                    <p className="mb-1 text-sm font-semibold text-slate-800">{f.label}</p>
+                    <p className="text-xs leading-relaxed text-pretty text-slate-500">{f.desc}</p>
                   </div>
                 </div>
               </CardContent>
@@ -120,29 +140,29 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="border-t border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-16 text-center">
-          <h2 className="text-xl md:text-2xl font-bold mb-4 text-balance">Ready to respond?</h2>
-          <p className="text-muted-foreground mb-8 text-pretty max-w-md mx-auto">
+      <section className="relative isolate overflow-hidden bg-[#74151d] text-center text-white">
+        <div className="tactical-grid pointer-events-none absolute inset-0 opacity-15" />
+        <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 md:py-16 lg:px-8">
+          <h2 className="mb-4 text-balance text-xl font-bold md:text-2xl">Ready to respond?</h2>
+          <p className="mx-auto mb-8 max-w-md text-pretty text-sm leading-6 text-white/75">
             Residents can register to report emergencies. LDRRMO staff log in to access the operations center.
           </p>
-          <div className="flex flex-col md:flex-row gap-3 justify-center">
-            <Button asChild>
+          <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <Button className="rounded-lg bg-white font-semibold text-[#89151f] hover:bg-white/90" asChild>
               <Link to="/register">Register as Resident</Link>
             </Button>
-            <Button variant="outline" asChild>
+            <Button variant="outline" className="rounded-lg border-white/40 bg-white/5 text-white hover:bg-white/10 hover:text-white" asChild>
               <Link to="/login">Staff / Admin Login</Link>
             </Button>
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" className="rounded-lg text-white/80 hover:bg-white/10 hover:text-white" asChild>
               <Link to="/xampp">XAMPP Operations Portal</Link>
             </Button>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-border py-6 text-center">
-        <p className="text-xs text-muted-foreground">
+      <footer className="border-t border-white/10 bg-[#260f15] px-4 py-6 text-center">
+        <p className="text-xs text-white/60">
           © {new Date().getFullYear()} LDRRMO Diplahan Emergency Response System · Zamboanga Sibugay
         </p>
       </footer>

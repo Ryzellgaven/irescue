@@ -150,6 +150,17 @@
   50% { filter: drop-shadow(0 0 8px rgb(220 38 38 / 0.9)); }
 }
 
+.incident-location-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: incident-location-pulse 1.6s ease-out infinite;
+}
+
+@keyframes incident-location-pulse {
+  0% { opacity: 0.85; transform: scale(0.65); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
 /* Gradient text */
 .gradient-text {
   background: linear-gradient(135deg, hsl(var(--primary)), hsl(196 80% 70%));

@@ -1,7 +1,7 @@
 import { apiRequest, getPrivateMediaUrl, uploadReportMedia } from '@/lib/xampp-api';
 import type {
   AuditLog, CallerLog, EmergencyReport, EvacuationCenter, IotDevice, Notification,
-  Profile, ReportAssignment, SensorReading, StatusUpdate, SystemConfig,
+  Profile, ReportAssignment, SafeRoute, SensorReading, StatusUpdate, SystemConfig,
 } from '@/types/index';
 
 type Result<T> = { data: T | null; error: Error | null; count?: number };
@@ -117,6 +117,20 @@ export async function getLatestLocations() {
 }
 export async function getActiveReports() {
   try { return (await apiRequest<EmergencyReport[]>('active-reports')).map(withMediaUrl); } catch { return []; }
+}
+
+export async function getSafeRoutes(): Promise<SafeRoute[]> {
+  try { return await apiRequest<SafeRoute[]>('safe-routes'); } catch { return []; }
+}
+export async function createSafeRoute(route: {
+  report_id: string;
+  title: string;
+  path: SafeRoute['path'];
+}) {
+  return result(apiRequest<SafeRoute>('safe-routes', {
+    method: 'POST',
+    body: JSON.stringify(route),
+  }));
 }
 
 export async function getEvacuationCenters(): Promise<EvacuationCenter[]> {

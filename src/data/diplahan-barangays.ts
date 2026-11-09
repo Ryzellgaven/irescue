@@ -1,0 +1,26 @@
+// Official PSGC barangay names for Diplahan (098303000).
+// Source: https://psgc.gitlab.io/api/municipalities/098303000/barangays/
+export const DIPLAHAN_BARANGAYS = [
+  'Balangao',
+  'Butong',
+  'Ditay',
+  'Gaulan',
+  'Goling',
+  'Guinoman',
+  'Kauswagan',
+  'Lindang',
+  'Lobing',
+  'Luop',
+  'Manangon',
+  'Mejo',
+  'Natan',
+  'Paradise',
+  'Pilar',
+  'Poblacion',
+  'Sampoli A',
+  'Sampoli B',
+  'Santa Cruz',
+  'Songcuya',
+  'Tinongtongan',
+  'Tuno',
+] as const;

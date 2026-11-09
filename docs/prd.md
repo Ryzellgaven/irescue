@@ -79,7 +79,9 @@ Unified React Web Application
 **Submit Emergency Report**:
 - Select emergency type: fire, flood, medical, accident, or other
 - Select severity level: low, moderate, high, critical
-- Auto-capture GPS coordinates via Browser Geolocation API
+- Auto-capture GPS coordinates via Browser Geolocation API, or choose a Diplahan barangay and an OpenStreetMap street when mapped
+- Manually selected streets start at an approximate mapped point; the resident can tap the Diplahan map to place the exact incident pin before submitting
+- OpenStreetMap street lookup requires internet access and sends the selected barangay search to the public Photon geocoder; unmapped streets remain locatable by dropping a pin on the map
 - Optional photo/video attachment
 - Text description field
 - Offline queuing: report is stored locally and submitted when connectivity is restored

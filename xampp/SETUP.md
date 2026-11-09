@@ -8,6 +8,8 @@ For a fresh installation, import `xampp/database.sql` in phpMyAdmin. It creates 
 
 To upgrade an installation created by the previous standalone `/xampp` portal, back up `ldrrmo_xampp` first. In phpMyAdmin, run `migrate-existing-xampp-stage1.sql`, import `database.sql`, then run `migrate-existing-xampp-stage2.sql`. This migrates staff password hashes and IDs, reports, assignments' prior status history, registered sensors and readings, and audit history into the unified tables. Legacy tables are retained with `legacy_` names for verification; the application no longer uses them. No old account is silently discarded.
 
+For an existing unified installation, run `migrate-safe-routes.sql` once in phpMyAdmin to enable saved alternate routes.
+
 ## 2. Install the API
 
 Copy the contents of `xampp/api` into:
@@ -59,6 +61,7 @@ Resident self-registration creates only the `resident` role. The API ignores any
 - Reports, status history, assignments, evacuation centers, notifications, caller logs, audit logs, configuration, and analytics are persisted in the shared MySQL database.
 - Staff routes and admin operations are authorized by the PHP API on every request, not only by client-side route guards.
 - The app polls the API periodically for updates.
+- Supervisors and administrators can draw a proposed landslide detour by clicking waypoints on the operations map. Published routes appear on the resident incident map and create an in-app notice for residents. These manually drawn lines are not verified road directions; confirm access and safety with field responders before travel.
 - Sensor values must come from an actual registered sensor or trusted gateway. The admin IoT page shows the device code and token once; submit readings to `POST http://localhost/ldrrmo-api/index.php?action=device-reading` with `X-Device-Token` and JSON such as `{"device_code":"IOT-<assigned-code>","reading":1.42}`. Keep device tokens out of browser code and source control.
 - In-app notifications are delivered from the database. Push/SMS/email delivery remains unavailable until a real provider is configured, and those channel attempts are saved with an explicit failed status.
 
