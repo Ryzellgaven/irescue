@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "ldrrmo-emergency-response",
-      "database_id": "REPLACE_WITH_CLOUDFLARE_D1_DATABASE_ID",
+      "database_id": "1d559ce5-f919-4aa6-b39d-3a717974bfd6",
       "migrations_dir": "cloudflare/migrations"
     }
   ]
