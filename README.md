@@ -22,9 +22,9 @@ The included `Dockerfile` builds the frontend and runs the PHP API in one Render
 
 Render's assigned `onrender.com` URL is the public website URL. API calls use the same origin; the production build does not use a localhost URL. Keep the database credentials private and configure regular database backups with the database provider.
 
-## No-card Cloudflare pilot (in progress)
+## No-card Cloudflare pilot
 
-The Cloudflare Workers + D1 replacement is being migrated in [cloudflare/README.md](cloudflare/README.md). It is **not complete or ready to deploy**: unported API actions return an explicit error. The new D1 database also starts empty and does not import existing MySQL accounts or records. Do not use a free pilot for real emergency-response operations or resident data.
+The Cloudflare Workers + D1 replacement and setup steps are documented in [cloudflare/README.md](cloudflare/README.md). The migration has API coverage for the existing PHP actions, but it still needs a successful build and end-to-end Cloudflare verification before public use. The new D1 database starts empty and does not import existing MySQL accounts or records. Do not use a free pilot for real emergency-response operations or resident data.
 
 ## Local development
 

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
+    "typecheck:worker": "tsc --noEmit --target ES2022 --module ESNext --lib ES2022,DOM --strict --skipLibCheck cloudflare/worker.ts",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsgo -p tsconfig.check.json; npx biome lint; .rules/check.sh;npx tailwindcss -i ./src/index.css -o /dev/null 2>&1 | grep -E '^(CssSyntaxError|Error):.*' || true;.rules/testBuild.sh"
   },

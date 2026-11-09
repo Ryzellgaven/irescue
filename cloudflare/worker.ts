@@ -191,10 +191,39 @@ function enumValue<const T extends readonly string[]>(value: unknown, allowed: T
 }
 
 function numberValue(value: unknown, min: number, max: number, label: string, nullable = false): number | null {
-  if (nullable && (value === null || value === undefined || value === '')) return null;
-  const parsed = typeof value === 'number' ? value : Number(value);
+  if (value === null || value === undefined || value === '') {
+    if (nullable) return null;
+    fail(`${label} is outside its valid range.`);
+  }
+  if (typeof value !== 'number' && typeof value !== 'string') fail(`${label} is outside its valid range.`);
+  const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < min || parsed > max) fail(`${label} is outside its valid range.`);
   return parsed;
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  let mismatch = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < Math.max(leftBytes.length, rightBytes.length); index++) {
+    mismatch |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+  return mismatch === 0;
+}
+
+function integerValue(value: unknown, min: number, max: number, label: string): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^[+-]?\d+$/.test(value))) {
+    fail(`${label} must be a whole number between ${min} and ${max}.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    fail(`${label} must be a whole number between ${min} and ${max}.`);
+  }
+  return parsed;
+}
+
+function queryId(url: URL, label = 'ID'): number {
+  return integerValue(url.searchParams.get('id'), 1, Number.MAX_SAFE_INTEGER, label);
 }
 
 function pageParams(url: URL, defaultSize = 50) {
@@ -275,8 +304,9 @@ function decodeReport<T extends Record<string, unknown>>(report: T): T {
 }
 
 async function getUserById(db: D1Database, id: number): Promise<User | null> {
-  return db.prepare('SELECT id,email,full_name,phone,address,role,is_active,avatar_url,created_at,updated_at FROM profiles WHERE id=?')
+  const user = await db.prepare('SELECT id,email,full_name,phone,address,role,is_active,avatar_url,created_at,updated_at FROM profiles WHERE id=?')
     .bind(id).first<User>();
+  return user ? { ...user, is_active: Boolean(user.is_active) } : null;
 }
 
 async function dispatch(request: Request, env: Environment): Promise<Response> {
@@ -301,27 +331,52 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     const suppliedToken = request.headers.get('X-Admin-Bootstrap-Token') ?? '';
     const expectedHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(env.BOOTSTRAP_ADMIN_TOKEN));
     const suppliedHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(suppliedToken));
-    const expected = new Uint8Array(expectedHash);
-    const supplied = new Uint8Array(suppliedHash);
-    let mismatch = suppliedToken.length ^ env.BOOTSTRAP_ADMIN_TOKEN.length;
-    for (let index = 0; index < expected.length; index++) mismatch |= expected[index] ^ supplied[index];
-    if (mismatch !== 0) fail('Administrator setup token is invalid.', 403);
+    const expected = Array.from(new Uint8Array(expectedHash), byte => byte.toString(16).padStart(2, '0')).join('');
+    const supplied = Array.from(new Uint8Array(suppliedHash), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (!constantTimeEqual(expected, supplied)) fail('Administrator setup token is invalid.', 403);
     const body = await requestBody(request);
-    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM profiles WHERE role='admin'").first<{ count: number }>();
-    if ((count?.count ?? 0) > 0) fail('An administrator already exists.', 409);
     const name = text(body.full_name, 'Full name', 120)!;
     const email = text(body.email, 'Email', 254)!.toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter a valid email address.');
-    const passwordHash = await hashPassword(String(body.password ?? ''));
+    if (env.BOOTSTRAP_ADMIN_TOKEN.length < 32) fail('Administrator setup token must be at least 32 characters.', 500);
+    const passwordHash = await hashPassword(typeof body.password === 'string' ? body.password : '');
     const result = await env.DB.prepare(
-      'INSERT INTO profiles(email,full_name,password_hash,role) VALUES(?,?,?,?)',
-    ).bind(email, name, passwordHash, 'admin').run();
+      "INSERT INTO profiles(email,full_name,password_hash,role) SELECT ?,?,?,'admin' WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE role='admin')",
+    ).bind(email, name, passwordHash).run();
+    if (result.meta.changes === 0) fail('An administrator already exists.', 409);
     await audit(env.DB, null, 'initial_admin_created', 'profiles', result.meta.last_row_id, { email }, ip);
     return ok({ created: true }, 201);
   }
 
   if (action === 'device-reading' && method === 'POST') {
-    return json({ error: { message: 'IoT ingestion migration is not complete yet.' } }, 501);
+    const body = await requestBody(request);
+    const code = text(body.device_code, 'Device code', 48)!;
+    const token = request.headers.get('X-Device-Token') ?? '';
+    const reading = numberValue(body.reading ?? body.value, -1_000_000, 1_000_000, 'Reading')!;
+    if (!/^[a-f0-9]{64}$/i.test(token)) fail('A valid device token is required.', 401);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
+    const tokenHash = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    const device = await env.DB.prepare("SELECT * FROM iot_devices WHERE device_code=? AND status='active'")
+      .bind(code).first<Record<string, unknown> & { id: number; alert_threshold: number; alert_unit: string; name: string; device_token_hash: string }>();
+    if (!device || !constantTimeEqual(device.device_token_hash, tokenHash)) fail('The device credentials are invalid.', 401);
+    const alert = reading >= device.alert_threshold;
+    const statements: D1Statement[] = [
+      env.DB.prepare('INSERT INTO sensor_readings(device_id,value,unit,is_alert) VALUES(?,?,?,?)')
+        .bind(device.id, reading, device.alert_unit, alert ? 1 : 0),
+      env.DB.prepare('UPDATE iot_devices SET last_reading=?,last_reading_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .bind(reading, device.id),
+    ];
+    if (alert) {
+      const title = `Sensor Alert: ${device.name}`;
+      const message = `Measured ${reading} ${device.alert_unit}; configured threshold is ${device.alert_threshold} ${device.alert_unit}.`;
+      for (const role of ['ldrrmo_staff', 'supervisor', 'admin'] as const) {
+        statements.push(env.DB.prepare(
+          "INSERT INTO notifications(title,body,channel,status,target_role,sent_at) VALUES(?,?,'in_app','sent',?,CURRENT_TIMESTAMP)",
+        ).bind(title, message, role));
+      }
+    }
+    await env.DB.batch(statements);
+    return ok({ accepted: true, is_alert: alert });
   }
 
   const session = await getSession(request, env.DB);
@@ -362,7 +417,7 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter a valid email address.');
     const phone = text(body.phone, 'Phone', 40, false);
     const address = text(body.address, 'Address', 255, false);
-    const passwordHash = await hashPassword(String(body.password ?? ''));
+    const passwordHash = await hashPassword(typeof body.password === 'string' ? body.password : '');
     let result: D1Result<unknown>;
     try {
       result = await env.DB.prepare(
@@ -385,8 +440,8 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     const user = await requireUser(env.DB, session);
     await audit(env.DB, user.id, 'logout', 'session', undefined, undefined, ip);
     if (session) await env.DB.prepare('DELETE FROM app_sessions WHERE id=?').bind(session.id).run();
-    const cookie = sessionCookie('', request, 0);
-    return ok({ csrf_token: randomHex() }, 200, cookie);
+    const anonymous = await ensureSession(new Request(request.url, { headers: { Cookie: '' } }), env.DB);
+    return ok({ csrf_token: anonymous.session.csrf_token }, 200, sessionCookie(anonymous.session.id, request));
   }
 
   if (action === 'profile' && method === 'GET') {
@@ -409,6 +464,89 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     await env.DB.prepare(`UPDATE profiles SET ${fields.join(',')},updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(...values).run();
     await audit(env.DB, user.id, 'profile_updated', 'profiles', user.id, undefined, ip);
     return ok(await getUserById(env.DB, user.id));
+  }
+
+  if (action === 'profiles' && method === 'GET') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['admin']);
+    const { size, offset } = pageParams(url);
+    const total = await env.DB.prepare('SELECT COUNT(*) AS count FROM profiles').first<{ count: number }>();
+    const rows = await env.DB.prepare(
+      'SELECT id,email,full_name,phone,address,role,is_active,avatar_url,created_at,updated_at FROM profiles ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    ).bind(size, offset).all();
+    return ok({ items: rows.results.map(row => ({ ...row, is_active: Boolean(row.is_active) })), total: total?.count ?? 0 });
+  }
+
+  if (action === 'users' && method === 'POST') {
+    const admin = await requireUser(env.DB, session);
+    requireRole(admin, ['admin']);
+    const body = await requestBody(request);
+    const email = text(body.email, 'Email', 254)!.toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter a valid email address.');
+    const name = text(body.full_name, 'Full name', 120)!;
+    const phone = text(body.phone, 'Phone', 40, false);
+    const role = enumValue(body.role, ROLES, 'role');
+    const passwordHash = await hashPassword(typeof body.password === 'string' ? body.password : '');
+    let result: D1Result<unknown>;
+    try {
+      result = await env.DB.prepare(
+        'INSERT INTO profiles(email,full_name,phone,password_hash,role) VALUES(?,?,?,?,?)',
+      ).bind(email, name, phone, passwordHash, role).run();
+    } catch (error) {
+      if (String(error).toLowerCase().includes('unique')) fail('An account with that email already exists.', 409);
+      throw error;
+    }
+    const id = result.meta.last_row_id;
+    await audit(env.DB, admin.id, 'user_created', 'profiles', id, { role }, ip);
+    return ok(await getUserById(env.DB, id), 201);
+  }
+
+  if (action === 'users' && method === 'PATCH') {
+    const admin = await requireUser(env.DB, session);
+    requireRole(admin, ['admin']);
+    const id = queryId(url, 'User ID');
+    const body = await requestBody(request);
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (Object.hasOwn(body, 'full_name')) {
+      fields.push('full_name=?');
+      values.push(text(body.full_name, 'full_name', 120));
+    }
+    if (Object.hasOwn(body, 'phone')) {
+      fields.push('phone=?');
+      values.push(text(body.phone, 'phone', 40, false));
+    }
+    if (Object.hasOwn(body, 'role')) {
+      fields.push('role=?');
+      values.push(enumValue(body.role, ROLES, 'role'));
+    }
+    if (Object.hasOwn(body, 'is_active')) {
+      if (typeof body.is_active !== 'boolean') fail('is_active must be a boolean.');
+      fields.push('is_active=?');
+      values.push(body.is_active ? 1 : 0);
+    }
+    if (!fields.length) fail('No user fields were provided.');
+    const target = await getUserById(env.DB, id);
+    if (!target) fail('The user does not exist.', 404);
+    const deactivate = body.is_active === false;
+    const demote = body.role !== undefined && body.role !== 'admin';
+    if (id === admin.id && deactivate) fail('You cannot deactivate your own account.', 403);
+    if (id === admin.id && demote) fail('You cannot remove your own administrator role.', 403);
+    values.push(id);
+    const updated = await env.DB.prepare(
+      `UPDATE profiles SET ${fields.join(',')},updated_at=CURRENT_TIMESTAMP
+       WHERE id=? AND NOT (?=1 AND role='admin' AND is_active=1
+         AND (SELECT COUNT(*) FROM profiles WHERE role='admin' AND is_active=1)<=1)`,
+    ).bind(...values, demote || deactivate ? 1 : 0).run();
+    if (!updated.meta.changes) {
+      const exists = await getUserById(env.DB, id);
+      if (!exists) fail('The user does not exist.', 404);
+      if ((demote || deactivate) && exists.role === 'admin' && exists.is_active) {
+        fail('The last active administrator cannot be demoted or deactivated.', 409);
+      }
+    }
+    await audit(env.DB, admin.id, 'user_updated', 'profiles', id, undefined, ip);
+    return ok(await getUserById(env.DB, id));
   }
 
   if (action === 'reports' && method === 'GET' || action === 'my-reports' && method === 'GET') {
@@ -437,6 +575,7 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
   }
 
   if (action === 'active-reports' && method === 'GET') {
+    await requireUser(env.DB, session);
     const rows = await env.DB.prepare(
       "SELECT id,emergency_type,severity,status,latitude,longitude,address_text,created_at FROM emergency_reports WHERE status IN ('open','in_progress') AND latitude IS NOT NULL ORDER BY created_at DESC LIMIT 200",
     ).all<Record<string, unknown>>();
@@ -469,22 +608,24 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
       const staged = await env.DB.prepare('SELECT 1 FROM report_media WHERE path=? AND user_id=?').bind(photo, user.id).first();
       if (!staged) fail('The uploaded photo is invalid.', 403);
     }
-    const created = await env.DB.prepare(
+    const reportInsert = env.DB.prepare(
       'INSERT INTO emergency_reports(reporter_id,emergency_type,severity,description,latitude,longitude,address_text,photo_url) VALUES(?,?,?,?,?,?,?,?)',
-    ).bind(user.id, type, severity, description, latitude, longitude, address, photo).run();
-    const id = created.meta.last_row_id;
+    ).bind(user.id, type, severity, description, latitude, longitude, address, photo);
     const title = `New Emergency Report: ${type.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase())}`;
     const location = latitude !== null
       ? ` at GPS coordinates ${latitude.toFixed(6)}, ${longitude?.toFixed(6)}`
       : address ? ` for ${address}` : ' at an unspecified location';
     const bodyText = `A ${severity} severity report was submitted${location}.`;
-    await env.DB.batch([
+    const results = await env.DB.batch([
+      reportInsert,
+      env.DB.prepare("INSERT INTO audit_logs(user_id,action,table_name,record_id,ip_address) VALUES(?,'report_created','emergency_reports',CAST(last_insert_rowid() AS TEXT),?)")
+        .bind(user.id, ip),
       ...(['ldrrmo_staff', 'supervisor', 'admin'] as const).map(role => env.DB.prepare(
         "INSERT INTO notifications(title,body,channel,status,target_role,sent_at) VALUES(?,?,'in_app','sent',?,CURRENT_TIMESTAMP)",
       ).bind(title, bodyText, role)),
-      env.DB.prepare('INSERT INTO audit_logs(user_id,action,table_name,record_id,ip_address) VALUES(?,?,?,?,?)')
-        .bind(user.id, 'report_created', 'emergency_reports', String(id), ip),
     ]);
+    const id = results[0]?.meta.last_row_id;
+    if (!id) throw new Error('The saved report could not be loaded.');
     const row = await env.DB.prepare(`${REPORT_SELECT} WHERE r.id=?`).bind(id).first<Record<string, unknown>>();
     if (!row) throw new Error('The saved report could not be loaded.');
     return ok(decodeReport(row), 201);
@@ -503,7 +644,7 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
       .bind(id).first<{ status: string; after_action_report: string | null }>();
     if (!report) fail('The report does not exist.', 404);
     const afterAction = Object.hasOwn(body, 'after_action_report')
-      ? text(body.after_action_report, 'After-action report', 5000, false)
+      ? text(body.after_action_report, 'After-action report', 5000, false) ?? report.after_action_report
       : report.after_action_report;
     if (status === 'closed' && !afterAction) fail('An after-action report is required before closing an incident.');
     const statements: D1Statement[] = [
@@ -518,11 +659,371 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
       }
       statements.push(env.DB.prepare('INSERT INTO audit_logs(user_id,action,table_name,record_id,ip_address) VALUES(?,?,?,?,?)')
         .bind(user.id, 'report_status_changed', 'emergency_reports', String(id), ip));
+      const notification = await env.DB.prepare('SELECT reporter_id,emergency_type FROM emergency_reports WHERE id=?')
+        .bind(id).first<{ reporter_id: number; emergency_type: string }>();
+      if (!notification) fail('The report does not exist.', 404);
+      statements.push(env.DB.prepare(
+        "INSERT INTO notifications(title,body,channel,status,target_user_id,sent_by,sent_at) VALUES(?,?,'in_app','sent',?,?,CURRENT_TIMESTAMP)",
+      ).bind(
+        'Report status updated',
+        `Your ${notification.emergency_type.replaceAll('_', ' ')} report status is now ${status.replaceAll('_', ' ')}.`,
+        notification.reporter_id,
+        user.id,
+      ));
     }
     await env.DB.batch(statements);
     const updated = await env.DB.prepare(`${REPORT_SELECT} WHERE r.id=?`).bind(id).first<Record<string, unknown>>();
     if (!updated) throw new Error('The updated report could not be loaded.');
     return ok(decodeReport(updated));
+  }
+
+  if (action === 'report-assignments' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['supervisor', 'admin']);
+    const reportId = queryId(url, 'Report ID');
+    const body = await requestBody(request);
+    const responderId = integerValue(body.responder_id, 1, Number.MAX_SAFE_INTEGER, 'Responder ID');
+    const responder = await env.DB.prepare(
+      "SELECT id FROM profiles WHERE id=? AND is_active=1 AND role IN ('ldrrmo_staff','supervisor','admin')",
+    ).bind(responderId).first<{ id: number }>();
+    if (!responder) fail('Choose an active staff responder.');
+    const report = await env.DB.prepare('SELECT status FROM emergency_reports WHERE id=?')
+      .bind(reportId).first<{ status: string }>();
+    if (!report) fail('The report does not exist.', 404);
+    const notes = text(body.notes ?? null, 'Notes', 2000, false);
+    const nextStatus = report.status === 'open' ? 'in_progress' : report.status;
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO report_assignments(report_id,responder_id,assigned_by,notes) VALUES(?,?,?,?)')
+        .bind(reportId, responderId, user.id, notes),
+      env.DB.prepare('UPDATE emergency_reports SET assigned_to=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .bind(responderId, nextStatus, reportId),
+      ...(nextStatus !== report.status ? [
+        env.DB.prepare("INSERT INTO status_updates(report_id,updated_by,old_status,new_status,notes) VALUES(?,?,'open','in_progress','Responder assigned')")
+          .bind(reportId, user.id),
+      ] : []),
+      env.DB.prepare(
+        "INSERT INTO notifications(title,body,channel,status,target_user_id,sent_by,sent_at) VALUES('Incident assignment','You have been assigned to an emergency response.','in_app','sent',?,?,CURRENT_TIMESTAMP)",
+      ).bind(responderId, user.id),
+      env.DB.prepare('INSERT INTO audit_logs(user_id,action,table_name,record_id,new_values,ip_address) VALUES(?,?,?,?,?,?)')
+        .bind(user.id, 'responder_assigned', 'emergency_reports', String(reportId), JSON.stringify({ responder_id: responderId }), ip),
+    ]);
+    return ok({ assigned: true });
+  }
+
+  if (action === 'safe-routes' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['supervisor', 'admin']);
+    const body = await requestBody(request);
+    const reportId = integerValue(body.report_id, 1, Number.MAX_SAFE_INTEGER, 'Report ID');
+    const title = text(body.title, 'Route name', 160)!;
+    if (!Array.isArray(body.path) || body.path.length < 2 || body.path.length > 100) {
+      fail('A route must contain between 2 and 100 map points.');
+    }
+    const path = body.path.map(point => {
+      if (!point || typeof point !== 'object' || Array.isArray(point)) fail('Each route point must include valid coordinates.');
+      const item = point as Record<string, unknown>;
+      return {
+        latitude: numberValue(item.latitude, -90, 90, 'Latitude')!,
+        longitude: numberValue(item.longitude, -180, 180, 'Longitude')!,
+      };
+    });
+    const report = await env.DB.prepare('SELECT emergency_type,status FROM emergency_reports WHERE id=?')
+      .bind(reportId).first<{ emergency_type: string; status: string }>();
+    if (!report) fail('The report does not exist.', 404);
+    if (report.emergency_type !== 'landslide') fail('Alternate routes can only be published for landslide reports.');
+    if (['resolved', 'closed'].includes(report.status)) fail('A route cannot be published for a closed report.');
+    const savedPath = JSON.stringify(path);
+    const results = await env.DB.batch([
+      env.DB.prepare('UPDATE safe_routes SET is_active=0 WHERE report_id=? AND is_active=1').bind(reportId),
+      env.DB.prepare('INSERT INTO safe_routes(report_id,title,path_json,created_by) VALUES(?,?,?,?)')
+        .bind(reportId, title, savedPath, user.id),
+      env.DB.prepare("INSERT INTO audit_logs(user_id,action,table_name,record_id,new_values,ip_address) VALUES(?,'safe_route_published','safe_routes',CAST(last_insert_rowid() AS TEXT),?,?)")
+        .bind(user.id, JSON.stringify({ report_id: reportId }), ip),
+    ]);
+    const id = results[1]?.meta.last_row_id;
+    if (!id) throw new Error('The saved alternate route could not be loaded.');
+    const route = await env.DB.prepare(
+      'SELECT id,report_id,title,path_json,is_active,created_by,created_at FROM safe_routes WHERE id=?',
+    ).bind(id).first<Record<string, unknown>>();
+    if (!route) throw new Error('The saved alternate route could not be loaded.');
+    return ok({
+      ...route,
+      report_id: Number(route.report_id),
+      is_active: Boolean(route.is_active),
+      created_by: route.created_by === null ? null : Number(route.created_by),
+      path,
+    }, 201);
+  }
+
+  if (action === 'locations' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    const body = await requestBody(request);
+    const latitude = numberValue(body.latitude, -90, 90, 'Latitude')!;
+    const longitude = numberValue(body.longitude, -180, 180, 'Longitude')!;
+    const reportId = body.report_id == null ? null : integerValue(body.report_id, 1, Number.MAX_SAFE_INTEGER, 'Report ID');
+    if (reportId !== null) {
+      const report = await env.DB.prepare('SELECT reporter_id FROM emergency_reports WHERE id=?')
+        .bind(reportId).first<{ reporter_id: number }>();
+      if (!report) fail('Report not found.', 404);
+      if (user.role === 'resident' && report.reporter_id !== user.id) {
+        fail('You are not authorized to update this report location.', 403);
+      }
+    }
+    await env.DB.prepare('INSERT INTO location_updates(user_id,latitude,longitude,report_id) VALUES(?,?,?,?)')
+      .bind(user.id, latitude, longitude, reportId).run();
+    return ok({ saved: true }, 201);
+  }
+
+  if (action === 'evacuation-centers' && (method === 'POST' || method === 'PATCH')) {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['supervisor', 'admin']);
+    const body = await requestBody(request);
+    const update = method === 'PATCH';
+    const id = update ? integerValue(url.searchParams.get('id') ?? body.id, 1, Number.MAX_SAFE_INTEGER, 'Evacuation center ID') : null;
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    const stringFields: Record<string, { max: number; required: boolean }> = {
+      name: { max: 160, required: true },
+      address: { max: 255, required: true },
+      contact_person: { max: 120, required: false },
+      contact_number: { max: 40, required: false },
+      notes: { max: 5000, required: false },
+    };
+    for (const [key, spec] of Object.entries(stringFields)) {
+      if (!update || Object.hasOwn(body, key)) {
+        fields.push(`${key}=?`);
+        values.push(text(body[key] ?? null, key, spec.max, spec.required));
+      }
+    }
+    for (const [key, min, max] of [['latitude', -90, 90], ['longitude', -180, 180]] as const) {
+      if (!update || Object.hasOwn(body, key)) {
+        fields.push(`${key}=?`);
+        values.push(numberValue(body[key], min, max, key)!);
+      }
+    }
+    for (const key of ['capacity', 'current_occupancy'] as const) {
+      if (!update || Object.hasOwn(body, key)) {
+        fields.push(`${key}=?`);
+        values.push(integerValue(body[key] ?? 0, 0, 1_000_000, key));
+      }
+    }
+    if (!update || Object.hasOwn(body, 'status')) {
+      fields.push('status=?');
+      values.push(enumValue(body.status ?? 'active', ['active', 'inactive'] as const, 'status'));
+    }
+    let centerId: number;
+    if (update) {
+      if (!fields.length) fail('No evacuation center fields were provided.');
+      values.push(id);
+      const result = await env.DB.prepare(
+        `UPDATE evacuation_centers SET ${fields.join(',')},updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      ).bind(...values).run();
+      if (!result.meta.changes) {
+        const existing = await env.DB.prepare('SELECT id FROM evacuation_centers WHERE id=?').bind(id).first();
+        if (!existing) fail('Evacuation center not found.', 404);
+      }
+      centerId = id!;
+    } else {
+      values.push(user.id);
+      const result = await env.DB.prepare(
+        `INSERT INTO evacuation_centers(${fields.map(field => field.split('=')[0]).join(',')},created_by) VALUES(${fields.map(() => '?').join(',')},?)`,
+      ).bind(...values).run();
+      centerId = result.meta.last_row_id;
+    }
+    await audit(env.DB, user.id, update ? 'evacuation_center_updated' : 'evacuation_center_created', 'evacuation_centers', centerId, undefined, ip);
+    const center = await env.DB.prepare('SELECT * FROM evacuation_centers WHERE id=?').bind(centerId).first();
+    return ok(center, update ? 200 : 201);
+  }
+
+  if ((action === 'iot-devices' || action === 'sensors') && method === 'POST' ||
+      action === 'iot-devices' && method === 'PATCH') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['admin']);
+    const body = await requestBody(request);
+    const update = method === 'PATCH';
+    const id = update ? integerValue(url.searchParams.get('id') ?? body.id, 1, Number.MAX_SAFE_INTEGER, 'Device ID') : null;
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    const updateStrings: Record<string, { max: number; label: string }> = {
+      device_code: { max: 48, label: 'Device code' },
+      name: { max: 120, label: 'Sensor name' },
+      alert_unit: { max: 12, label: 'Alert unit' },
+    };
+    if (update) {
+      for (const [key, spec] of Object.entries(updateStrings)) {
+        if (Object.hasOwn(body, key)) {
+          fields.push(`${key}=?`);
+          values.push(text(body[key], spec.label, spec.max));
+        }
+      }
+      if (Object.hasOwn(body, 'sensor_type')) {
+        fields.push('sensor_type=?');
+        values.push(enumValue(body.sensor_type, ['water_level', 'rainfall', 'wind_speed', 'temperature'] as const, 'sensor type'));
+      }
+      for (const [key, min, max] of [['latitude', -90, 90], ['longitude', -180, 180]] as const) {
+        if (Object.hasOwn(body, key)) {
+          fields.push(`${key}=?`);
+          values.push(numberValue(body[key], min, max, key)!);
+        }
+      }
+      if (Object.hasOwn(body, 'alert_threshold')) {
+        fields.push('alert_threshold=?');
+        values.push(numberValue(body.alert_threshold, -1_000_000, 1_000_000, 'Threshold')!);
+      }
+      if (Object.hasOwn(body, 'status')) {
+        fields.push('status=?');
+        values.push(enumValue(body.status, ['active', 'inactive', 'maintenance'] as const, 'status'));
+      }
+      if (!fields.length) fail('No sensor fields were provided.');
+      values.push(id);
+      const result = await env.DB.prepare(
+        `UPDATE iot_devices SET ${fields.join(',')},updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      ).bind(...values).run();
+      if (!result.meta.changes) {
+        const existing = await env.DB.prepare('SELECT id FROM iot_devices WHERE id=?').bind(id).first();
+        if (!existing) fail('IoT device not found.', 404);
+      }
+    } else {
+      const name = text(body.name, 'Sensor name', 120)!;
+      const type = enumValue(body.sensor_type, ['water_level', 'rainfall', 'wind_speed', 'temperature'] as const, 'sensor type');
+      const units = { water_level: 'm', rainfall: 'mm', wind_speed: 'm/s', temperature: '°C' } as const;
+      const code = body.device_code === undefined ? `IOT-${randomHex(4).toUpperCase()}` : text(body.device_code, 'Device code', 48)!;
+      const token = randomHex();
+      const unit = body.alert_unit === undefined ? units[type] : text(body.alert_unit, 'Alert unit', 12)!;
+      const status = enumValue(body.status ?? 'active', ['active', 'inactive', 'maintenance'] as const, 'status');
+      const tokenHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))),
+        byte => byte.toString(16).padStart(2, '0')).join('');
+      const created = await env.DB.prepare(
+        'INSERT INTO iot_devices(device_code,name,latitude,longitude,sensor_type,alert_threshold,alert_unit,status,device_token_hash) VALUES(?,?,?,?,?,?,?,?,?)',
+      ).bind(
+        code, name, numberValue(body.latitude, -90, 90, 'Latitude')!,
+        numberValue(body.longitude, -180, 180, 'Longitude')!, type,
+        numberValue(body.alert_threshold, -1_000_000, 1_000_000, 'Threshold')!, unit, status, tokenHash,
+      ).run();
+      const device = await env.DB.prepare('SELECT * FROM iot_devices WHERE id=?').bind(created.meta.last_row_id).first<Record<string, unknown>>();
+      await audit(env.DB, user.id, 'iot_device_created', 'iot_devices', created.meta.last_row_id, undefined, ip);
+      return ok(device ? { ...device, device_token: token } : null, 201);
+    }
+    const device = await env.DB.prepare('SELECT * FROM iot_devices WHERE id=?').bind(id).first();
+    await audit(env.DB, user.id, 'iot_device_updated', 'iot_devices', id!, undefined, ip);
+    return ok(device);
+  }
+
+  if (action === 'notifications' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['supervisor', 'admin']);
+    const body = await requestBody(request);
+    const title = text(body.title, 'Title', 180)!;
+    const message = text(body.body, 'Message', 10000)!;
+    const channel = enumValue(body.channel ?? 'in_app', ['in_app', 'push', 'sms', 'email'] as const, 'channel');
+    const role = body.target_role == null || body.target_role === ''
+      ? null
+      : enumValue(body.target_role, ROLES, 'recipient role');
+    const target = body.target_user_id == null || body.target_user_id === ''
+      ? null
+      : integerValue(body.target_user_id, 1, Number.MAX_SAFE_INTEGER, 'Recipient ID');
+    if (target !== null && role !== null) fail('Choose a user or a role as the recipient, not both.');
+    if (target !== null && !await getUserById(env.DB, target)) fail('Recipient account not found.');
+    const status = channel === 'in_app' ? 'sent' : 'failed';
+    const errorMessage = channel === 'in_app' ? null : `No ${channel.toUpperCase()} delivery provider is configured.`;
+    const created = await env.DB.prepare(
+      'INSERT INTO notifications(title,body,channel,status,target_role,target_user_id,sent_by,error_message,sent_at) VALUES(?,?,?,?,?,?,?,?,?)',
+    ).bind(title, message, channel, status, role, target, user.id, errorMessage, channel === 'in_app' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null).run();
+    const id = created.meta.last_row_id;
+    await audit(env.DB, user.id, 'notification_dispatched', 'notifications', id, { channel, status }, ip);
+    return ok(await env.DB.prepare('SELECT * FROM notifications WHERE id=?').bind(id).first(), 201);
+  }
+
+  if (action === 'notification-read' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    const body = await requestBody(request);
+    const id = integerValue(body.notification_id, 1, Number.MAX_SAFE_INTEGER, 'Notification ID');
+    const notification = await env.DB.prepare(
+      'SELECT id FROM notifications WHERE id=? AND (target_user_id=? OR target_user_id IS NULL) AND (target_role IS NULL OR target_role=?)',
+    ).bind(id, user.id, user.role).first();
+    if (!notification) fail('Notification not found.', 404);
+    await env.DB.prepare('INSERT OR IGNORE INTO notification_reads(notification_id,user_id) VALUES(?,?)')
+      .bind(id, user.id).run();
+    return ok({ read: true });
+  }
+
+  if (action === 'caller-logs' && method === 'GET') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['ldrrmo_staff', 'supervisor', 'admin']);
+    const { size, offset } = pageParams(url);
+    const rows = await env.DB.prepare(
+      `SELECT c.*,json_object('full_name',p.full_name) AS profiles
+       FROM caller_logs c JOIN profiles p ON p.id=c.logged_by ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    ).bind(size, offset).all<Record<string, unknown>>();
+    return ok(rows.results.map(row => ({ ...row, profiles: JSON.parse(String(row.profiles)) })));
+  }
+
+  if (action === 'caller-logs' && method === 'POST') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['ldrrmo_staff', 'supervisor', 'admin']);
+    const body = await requestBody(request);
+    const latitude = numberValue(body.latitude, -90, 90, 'Latitude', true);
+    const longitude = numberValue(body.longitude, -180, 180, 'Longitude', true);
+    if ((latitude === null) !== (longitude === null)) fail('Provide both coordinates, or leave both empty.');
+    const reportId = body.report_id == null ? null : integerValue(body.report_id, 1, Number.MAX_SAFE_INTEGER, 'Report ID');
+    if (reportId !== null && !await env.DB.prepare('SELECT id FROM emergency_reports WHERE id=?').bind(reportId).first()) {
+      fail('The report does not exist.', 404);
+    }
+    const result = await env.DB.prepare(
+      'INSERT INTO caller_logs(caller_name,caller_phone,emergency_type,reported_location,latitude,longitude,description,logged_by,report_id) VALUES(?,?,?,?,?,?,?,?,?)',
+    ).bind(
+      text(body.caller_name ?? null, 'Caller name', 120, false),
+      text(body.caller_phone, 'Caller phone', 40)!,
+      enumValue(body.emergency_type ?? 'other', EMERGENCY_TYPES, 'emergency type'),
+      text(body.reported_location ?? null, 'Location', 255, false),
+      latitude, longitude, text(body.description ?? null, 'Description', 5000, false), user.id, reportId,
+    ).run();
+    await audit(env.DB, user.id, 'caller_log_created', 'caller_logs', result.meta.last_row_id, undefined, ip);
+    return ok({ id: result.meta.last_row_id }, 201);
+  }
+
+  if (action === 'audit-logs' && method === 'GET') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['admin']);
+    const { size, offset } = pageParams(url);
+    const rows = await env.DB.prepare(
+      `SELECT a.*,json_object('full_name',p.full_name,'email',p.email) AS profiles
+       FROM audit_logs a LEFT JOIN profiles p ON p.id=a.user_id ORDER BY a.created_at DESC LIMIT ? OFFSET ?`,
+    ).bind(size, offset).all<Record<string, unknown>>();
+    return ok(rows.results.map(row => ({
+      ...row,
+      profiles: row.user_id === null ? null : JSON.parse(String(row.profiles)),
+      old_values: row.old_values ? JSON.parse(String(row.old_values)) : null,
+      new_values: row.new_values ? JSON.parse(String(row.new_values)) : null,
+    })));
+  }
+
+  if (action === 'system-config' && method === 'PATCH') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['admin']);
+    const key = url.searchParams.get('key') ?? '';
+    if (!key) fail('A configuration key is required.');
+    const body = await requestBody(request);
+    const value = text(body.value ?? null, 'Value', 10000, false) ?? '';
+    const result = await env.DB.prepare(
+      'UPDATE system_config SET value=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE key=?',
+    ).bind(value, user.id, key).run();
+    if (!result.meta.changes && !await env.DB.prepare('SELECT key FROM system_config WHERE key=?').bind(key).first()) {
+      fail('Configuration key not found.', 404);
+    }
+    await audit(env.DB, user.id, 'system_config_updated', 'system_config', undefined, { key }, ip);
+    return ok({ updated: true });
+  }
+
+  if (action === 'analytics' && method === 'GET') {
+    const user = await requireUser(env.DB, session);
+    requireRole(user, ['admin']);
+    const [reports, profiles, readings] = await Promise.all([
+      env.DB.prepare('SELECT status,emergency_type,severity,created_at FROM emergency_reports ORDER BY created_at DESC LIMIT 5000').all(),
+      env.DB.prepare('SELECT role,is_active,created_at FROM profiles ORDER BY created_at DESC LIMIT 5000').all(),
+      env.DB.prepare('SELECT is_alert,recorded_at FROM sensor_readings ORDER BY recorded_at DESC LIMIT 200').all(),
+    ]);
+    return ok({ reports: reports.results, profiles: profiles.results, readings: readings.results });
   }
 
   if (action === 'staff-profiles' && method === 'GET') {
@@ -531,7 +1032,7 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     const rows = await env.DB.prepare(
       "SELECT id,email,full_name,phone,role,is_active,created_at,updated_at FROM profiles WHERE is_active=1 AND role IN ('ldrrmo_staff','supervisor','admin') ORDER BY full_name",
     ).all();
-    return ok(rows.results);
+    return ok(rows.results.map(row => ({ ...row, is_active: Boolean(row.is_active) })));
   }
 
   if (action === 'operations-summary' && method === 'GET') {
@@ -593,11 +1094,13 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
   }
 
   if (action === 'evacuation-centers' && method === 'GET') {
+    await requireUser(env.DB, session);
     const rows = await env.DB.prepare('SELECT * FROM evacuation_centers ORDER BY name').all();
     return ok(rows.results);
   }
 
   if (action === 'safe-routes' && method === 'GET') {
+    await requireUser(env.DB, session);
     const routes = await env.DB.prepare(
       `SELECT s.id,s.report_id,s.title,s.path_json,s.is_active,s.created_by,s.created_at
        FROM safe_routes s JOIN emergency_reports r ON r.id=s.report_id
@@ -663,9 +1166,14 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     const rows = await env.DB.prepare(
       `SELECT n.*,CASE WHEN nr.id IS NULL THEN 0 ELSE 1 END AS is_read
        FROM notifications n LEFT JOIN notification_reads nr ON nr.notification_id=n.id AND nr.user_id=?
-       WHERE n.target_user_id=? OR n.target_role=? OR (n.target_user_id IS NULL AND n.target_role IS NULL)
+       WHERE (n.target_user_id=? OR n.target_user_id IS NULL) AND (n.target_role IS NULL OR n.target_role=?)
        ORDER BY n.created_at DESC LIMIT ? OFFSET ?`,
     ).bind(user.id, user.id, user.role, size, offset).all<Record<string, unknown>>();
+    if (rows.results.length) {
+      await env.DB.batch(rows.results.map(row => env.DB.prepare(
+        'INSERT OR IGNORE INTO notification_reads(notification_id,user_id) VALUES(?,?)',
+      ).bind(row.id, user.id)));
+    }
     return ok(rows.results.map(row => ({ ...row, is_read: Boolean(row.is_read) })));
   }
 
@@ -699,6 +1207,8 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
 
   if (action === 'report-media' && method === 'POST') {
     const user = await requireUser(env.DB, session);
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 1_100_000) fail('Photo must be under 1MB on the free pilot.', 413);
     const form = await request.formData();
     const file = form.get('file');
     if (!(file instanceof File) || file.size === 0) fail('Choose a valid image to upload.');
@@ -741,7 +1251,7 @@ async function dispatch(request: Request, env: Environment): Promise<Response> {
     });
   }
 
-  return json({ error: { message: 'This API action has not been migrated yet.' } }, 501);
+  return json({ error: { message: 'Unknown API action.' } }, 404);
 }
 
 export default {
