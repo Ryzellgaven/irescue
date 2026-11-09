@@ -35,7 +35,7 @@ interface User {
   phone: string | null;
   address: string | null;
   role: 'resident' | 'ldrrmo_staff' | 'supervisor' | 'admin';
-  is_active: number;
+  is_active: boolean;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
@@ -287,20 +287,21 @@ const REPORT_SELECT = `SELECT r.*,p.full_name AS reporter_name,p.phone AS report
   FROM emergency_reports r JOIN profiles p ON p.id=r.reporter_id
   LEFT JOIN profiles a ON a.id=r.assigned_to`;
 
-function decodeReport<T extends Record<string, unknown>>(report: T): T {
+function decodeReport(report: Record<string, unknown>): Record<string, unknown> {
+  const decoded = { ...report };
   for (const key of ['profiles', 'assigned_profile']) {
-    const value = report[key];
+    const value = decoded[key];
     if (typeof value === 'string') {
       try {
-        report[key] = JSON.parse(value) as T[keyof T];
+        decoded[key] = JSON.parse(value);
       } catch {
-        report[key] = null as T[keyof T];
+        decoded[key] = null;
       }
     }
   }
-  report.is_caller_report = Boolean(report.is_caller_report) as T[keyof T];
-  report.location = (report.address_text ?? null) as T[keyof T];
-  return report;
+  decoded.is_caller_report = Boolean(decoded.is_caller_report);
+  decoded.location = decoded.address_text ?? null;
+  return decoded;
 }
 
 async function getUserById(db: D1Database, id: number): Promise<User | null> {
